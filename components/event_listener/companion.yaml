@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: EventListener
+metadata:
+  name: companion
+  label:
+    en_US: QQ Group Companion
+    zh_Hans: QQ 群聊陪伴
+spec:
+execution:
+  python:
+    path: companion.py
+    attr: CompanionEventListener

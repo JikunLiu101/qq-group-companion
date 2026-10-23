@@ -1,0 +1,349 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: JikunLiu101
+  name: qq-group-companion
+  repository: 'https://github.com/JikunLiu101/qq-group-companion'
+  version: 0.9.1
+  description:
+    en_US: 'QQ group companion: listens to whitelisted groups, turns media into text, and decides when the persona should speak.'
+    zh_Hans: 'QQ 群聊陪伴：只旁听白名单群，把表情和媒体转成文字，并决定人设何时发言。'
+  label:
+    en_US: QQ Group Companion
+    zh_Hans: QQ 群聊陪伴
+  icon: assets/icon.svg
+spec:
+  config:
+    - name: group-whitelist
+      label:
+        en_US: Group whitelist
+        zh_Hans: 群白名单
+      description:
+        en_US: Group numbers to listen to, separated by commas. Empty means listen to no group.
+        zh_Hans: 要旁听的群号，用英文逗号分隔。留空表示一个群都不听。
+      type: string
+      required: false
+      default: ''
+    - name: data-dir
+      label:
+        en_US: Data directory
+        zh_Hans: 数据目录
+      description:
+        en_US: Local directory for the message buffer database. Keep it outside synced folders.
+        zh_Hans: 本地消息缓冲数据库所在目录，不要放在 OneDrive 等同步盘里。
+      type: string
+      required: true
+      default: ''
+    - name: reply-mode
+      label:
+        en_US: Reply mode
+        zh_Hans: 回复模式
+      description:
+        en_US: listen = record only, never reply. mention = reply when @-ed, replied to, or called by name.
+        zh_Hans: 只旁听 = 只记录、绝不回复；点名回复 = 被 @、被回复或被叫名字时才回复。
+      type: select
+      required: true
+      default: listen
+      options:
+        - name: listen
+          label:
+            en_US: Listen only
+            zh_Hans: 只旁听
+        - name: mention
+          label:
+            en_US: Reply when mentioned
+            zh_Hans: 点名回复
+    - name: self-qq
+      label:
+        en_US: Bot QQ number
+        zh_Hans: 机器人 QQ 号
+      description:
+        en_US: Used to recognise @mentions and replies to the bot. Replies are disabled while empty.
+        zh_Hans: 用来识别 @机器人 和回复机器人的消息；留空时不会回复。
+      type: string
+      required: false
+      default: ''
+    - name: persona-name
+      label:
+        en_US: Persona name
+        zh_Hans: 人设名字
+      description:
+        en_US: Shown instead of the bot QQ number in the chat log, and counts as being called by name.
+        zh_Hans: 聊天记录里用它代替机器人的 QQ 号；群友在消息里提到它也算点名。
+      type: string
+      required: false
+      default: ''
+    - name: persona-aliases
+      label:
+        en_US: Persona aliases
+        zh_Hans: 别名
+      description:
+        en_US: Other names that count as calling the bot, comma separated. Single characters are ignored.
+        zh_Hans: 其他算作点名的称呼，逗号分隔；单个字的称呼会被忽略。
+      type: string
+      required: false
+      default: ''
+    - name: owner-qq
+      label:
+        en_US: Owner QQ number
+        zh_Hans: 主人 QQ 号
+      description:
+        en_US: The owner's messages are marked as "(owner)" in the context; the owner mentioning their own nickname is not a trigger.
+        zh_Hans: 主人的发言在上下文里标成"（主人）"；主人自己提到自己的绰号不算点名。
+      type: string
+      required: false
+      default: ''
+    - name: owner-aliases
+      label:
+        en_US: Owner nicknames
+        zh_Hans: 主人的称呼
+      description:
+        en_US: Comma separated. Mentioning them is a weak trigger so the persona may speak up for the owner.
+        zh_Hans: 逗号分隔。群友提到这些称呼算弱点名，人设可以出来替主人说话。
+      type: string
+      required: false
+      default: ''
+    - name: nickname-as-alias
+      label:
+        en_US: Bot's group nickname counts as its name
+        zh_Hans: 机器人在各群的群昵称也算点名
+      description:
+        en_US: The bot's current group card / nickname in each group is looked up and treated as an alias.
+        zh_Hans: 自动查询机器人在每个群里当前的群名片/昵称，提到它就算点名。
+      type: boolean
+      required: false
+      default: true
+    - name: nickname-refresh-minutes
+      label:
+        en_US: Re-check the group nickname every (minutes)
+        zh_Hans: 群昵称刷新间隔（分钟）
+      type: integer
+      required: false
+      default: 10
+    - name: gate-secret
+      label:
+        en_US: Gate secret
+        zh_Hans: 放行暗号密钥
+      description:
+        en_US: Random string of at least 16 characters. The pipeline group rule regexp must match the tag derived from it. Replies are disabled while empty.
+        zh_Hans: 至少 16 位的随机字符串。流水线群规则的正则必须匹配由它算出的标签；留空时不会回复。
+      type: secret
+      required: false
+      default: ''
+    - name: user-daily-strong-limit
+      label:
+        en_US: Strong mentions per user per day
+        zh_Hans: 每人每日强点名次数
+      description:
+        en_US: '@-mentions and replies to the bot. Over the limit the plugin answers once with a preset line and then ignores that user for the day.'
+        zh_Hans: '@机器人、回复机器人。超过后插件回一句预设话术（每人每天一次），当天再叫就不理。'
+      type: integer
+      required: false
+      default: 20
+    - name: weak-per-minute
+      label:
+        en_US: Name mentions answered per group per minute
+        zh_Hans: 每群每分钟弱点名放行次数
+      type: integer
+      required: false
+      default: 3
+    - name: over-limit-replies
+      label:
+        en_US: Over-limit replies
+        zh_Hans: 超额话术
+      description:
+        en_US: One per line (or separated by |); {n} becomes the daily limit. Empty uses the built-in tsundere lines.
+        zh_Hans: 每行一条（或用 | 分隔），{n} 会替换成每日次数；留空使用内置的傲娇话术。
+      type: string
+      required: false
+      default: ''
+    - name: daily-limit-per-group
+      label:
+        en_US: Daily replies per group (safety cap)
+        zh_Hans: 每群每日回复总上限（兜底）
+      type: integer
+      required: false
+      default: 100
+    - name: daily-limit-total
+      label:
+        en_US: Daily replies in total (safety cap)
+        zh_Hans: 全部群每日回复总上限（兜底）
+      type: integer
+      required: false
+      default: 300
+    - name: context-max-messages
+      label:
+        en_US: Context messages per reply
+        zh_Hans: 每次附带的群聊条数上限
+      type: integer
+      required: false
+      default: 40
+    - name: context-window-minutes
+      label:
+        en_US: Context time window (minutes)
+        zh_Hans: 附带群聊的时间范围（分钟）
+      type: integer
+      required: false
+      default: 120
+    - name: max-reply-chars
+      label:
+        en_US: Maximum reply length
+        zh_Hans: 单条回复最大字数
+      type: integer
+      required: false
+      default: 300
+    - name: vision-enabled
+      label:
+        en_US: Let Claude look at images
+        zh_Hans: 允许 Claude 看图
+      description:
+        en_US: Images in a message the bot replies to are saved to the inbox directory. The runner must only be allowed to Read that directory.
+        zh_Hans: 机器人要回复的那条消息里的图片会保存到 inbox 目录。Runner 必须只允许 Read 该目录。
+      type: boolean
+      required: false
+      default: false
+    - name: inbox-dir
+      label:
+        en_US: Image inbox directory
+        zh_Hans: 图片 inbox 目录
+      description:
+        en_US: Absolute path, normally <runner workspace>\inbox.
+        zh_Hans: 绝对路径，通常是 Runner 工作目录下的 inbox。
+      type: string
+      required: false
+      default: ''
+    - name: max-images
+      label:
+        en_US: Images per reply
+        zh_Hans: 每次最多看几张图
+      type: integer
+      required: false
+      default: 3
+    - name: max-image-mb
+      label:
+        en_US: Maximum image size (MB)
+        zh_Hans: 单张图片大小上限（MB）
+      type: integer
+      required: false
+      default: 5
+    - name: inbox-retention-days
+      label:
+        en_US: Keep inbox images for (days)
+        zh_Hans: inbox 图片保留天数
+      type: integer
+      required: false
+      default: 3
+    - name: stickers-enabled
+      label:
+        en_US: Send stickers from the local library
+        zh_Hans: 从本地表情库发表情包
+      type: boolean
+      required: false
+      default: false
+    - name: stickers-dir
+      label:
+        en_US: Sticker library directory
+        zh_Hans: 表情库目录
+      description:
+        en_US: File name without extension is the tag, e.g. 狗头.png.
+        zh_Hans: 文件名（不含扩展名）就是标签，例如 狗头.png。
+      type: string
+      required: false
+      default: ''
+    - name: daily-sticker-limit-per-group
+      label:
+        en_US: Daily stickers per group
+        zh_Hans: 每群每日表情包上限
+      type: integer
+      required: false
+      default: 10
+    - name: sticker-repeat-minutes
+      label:
+        en_US: Do not repeat the same sticker within (minutes)
+        zh_Hans: 同一表情包不重复间隔（分钟）
+      type: integer
+      required: false
+      default: 30
+    - name: qq-faces-enabled
+      label:
+        en_US: Send QQ system faces
+        zh_Hans: 发送 QQ 系统表情
+      type: boolean
+      required: false
+      default: false
+    - name: error-replies-limit
+      label:
+        en_US: Replies when Claude is out of quota
+        zh_Hans: 额度用完时的话术
+      description:
+        en_US: 'Used when the Runner output is <qgc-error kind="limit"/>. Requires a wrapper that turns Claude errors and quota locks into this tag, e.g. the claude-usage-guard plugin with CUG_LOCK_OUTPUT=<qgc-error kind="limit"/> and CUG_ERROR_OUTPUT=<qgc-error kind="{kind}"/> in the Runner env. One per line (or separated by |). Empty uses built-in lines.'
+        zh_Hans: 'Runner 输出 <qgc-error kind="limit"/> 时使用。需要一个把 Claude 出错、额度锁定转换成这个标记的包装脚本，例如 claude-usage-guard 插件，并在 Runner 的环境变量里设置 CUG_LOCK_OUTPUT=<qgc-error kind="limit"/> 和 CUG_ERROR_OUTPUT=<qgc-error kind="{kind}"/>。每行一条（或用 | 分隔）；留空使用内置话术。'
+      type: string
+      required: false
+      default: ''
+    - name: error-replies-refused
+      label:
+        en_US: Replies when Claude refuses (safety)
+        zh_Hans: 安全机制拒答时的话术
+      type: string
+      required: false
+      default: ''
+    - name: error-replies-other
+      label:
+        en_US: Replies on other Claude errors
+        zh_Hans: 其他错误时的话术
+      type: string
+      required: false
+      default: ''
+    - name: error-reply-weak
+      label:
+        en_US: Also reply on errors for weak mentions
+        zh_Hans: 弱点名出错时也回话术
+      description:
+        en_US: Off by default - only @ / reply-to-me get an error reply.
+        zh_Hans: 默认关闭：只有 @ 和回复她的消息出错时才回话术，提到名字的出错时不说话。
+      type: boolean
+      required: false
+      default: false
+    - name: error-cooldown-minutes
+      label:
+        en_US: Error reply cooldown per group (minutes)
+        zh_Hans: 错误话术冷却（分钟，每群）
+      type: integer
+      required: false
+      default: 10
+    - name: private-whitelist
+      label:
+        en_US: Private chat whitelist (QQ numbers)
+        zh_Hans: 私聊白名单（QQ 号）
+      description:
+        en_US: Comma separated. Every private message from these users is treated as a strong mention. Also needs a LangBot route for private chats from these users.
+        zh_Hans: 逗号分隔。这些人的私聊每条都算强点名、照常回复（不占每人每天的次数）；还需要在 LangBot 机器人里加对应的私聊路由。其他私聊不处理。
+      type: string
+      required: false
+      default: ''
+    - name: reply-delay-min-seconds
+      label:
+        en_US: Reply delay min (seconds)
+        zh_Hans: 回复前随机等待·最短（秒）
+      description:
+        en_US: The plugin sends replies itself (quoting only for @ / reply-to-me), so the pipeline force-delay no longer applies.
+        zh_Hans: 回复由插件自己发送（只有群里 @ 或回复她时才引用原消息），流水线里的"强制延迟"不再起作用，改用这里的值。
+      type: integer
+      required: false
+      default: 3
+    - name: reply-delay-max-seconds
+      label:
+        en_US: Reply delay max (seconds)
+        zh_Hans: 回复前随机等待·最长（秒）
+      type: integer
+      required: false
+      default: 12
+  components:
+    EventListener:
+      fromDirs:
+        - path: components/event_listener/
+execution:
+  python:
+    path: main.py
+    attr: QQGroupCompanion
