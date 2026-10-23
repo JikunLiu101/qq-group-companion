@@ -1,5 +1,7 @@
 # QQ 群聊陪伴（QQ Group Companion）
 
+[![CI](https://github.com/JikunLiu101/qq-group-companion/actions/workflows/ci.yml/badge.svg)](https://github.com/JikunLiu101/qq-group-companion/actions/workflows/ci.yml)
+
 [English](../README.md)
 
 一个 [LangBot](https://github.com/langbot-app/LangBot) 插件：让 AI 人设像普通群友一样待在 QQ 群里——安静地旁听白名单群，把表情包、图片、QQ 表情转成文字，并决定人设**什么时候**开口：只有真有人在叫它时才回，而且受每人、每群的次数限制。
@@ -56,9 +58,9 @@ QQ 消息 → LangBot 路由（只放行白名单群）
 3. 先保持 `reply-mode`（回复模式）= **只旁听** 一段时间，确认消息有记录（`<数据目录>/companion.db`）。
 4. **放行暗号**
    - 生成至少 16 位的随机字符串，例如 `python -c "import secrets; print(secrets.token_urlsafe(24))"`，填进 `gate-secret`（放行暗号密钥）。
-   - 算出对应的正则：在插件目录下运行 `python tools/gate_regexp.py <你的密钥>`。
+   - 填好后插件日志会打印对应的正则（见下面的[日志](#日志)）；也可以在插件目录下运行 `python tools/gate_regexp.py <你的密钥>` 算出来。密钥留空时，日志会给出一个随机密钥和对应的正则供参考。
    - 流水线 → 触发 → 群响应规则：**关闭** @、前缀、随机，把输出的正则填进 **正则**（里面有一个看不见的字符，直接粘贴输出的 JSON 字符串）。
-5. **系统提示（人设）**必须包含下面的输出协议，否则一条都不会发：
+5. **系统提示（人设）**可以从 [`examples/persona.example.md`](../examples/persona.example.md) 改起。不管怎么写，都要保留下面的输出协议，否则一条都不会发：
 
    ```
    - 想说话：把要在群里发的话写在 <say> 和 </say> 之间，标签外的内容不会发出。
@@ -71,6 +73,17 @@ QQ 消息 → LangBot 路由（只放行白名单群）
 8. 可选：
    - 出错 / 额度话术：用一个会输出 `<qgc-error kind="limit|refused|other"/>` 的 Runner 包装脚本，例如 [claude-usage-guard](https://github.com/JikunLiu101/claude-usage-guard)，并在 Runner 的 `env-json` 里设置 `CUG_LOCK_OUTPUT=<qgc-error kind="limit"/>`、`CUG_ERROR_OUTPUT=<qgc-error kind="{kind}"/>`。
    - 私聊自检：把用户加进 `private-whitelist`（私聊白名单），**同时**给流水线加一条路由：`chat_type` 等于 `person` 且 `sender.id` 正则 `^<QQ号>$`。
+
+## 日志
+
+LangBot 的插件详情页会显示插件日志。在插件配置里设置**日志级别**：
+
+| 级别 | 会看到什么 |
+|---|---|
+| ERROR | 需要你处理的问题：没设数据目录、机器人 QQ 号或放行暗号密钥，表情库目录不存在，插件意外出错（这时那条消息会被拦下，不会把没过滤的内容发出去） |
+| WARNING | 会自己恢复的问题：查群昵称失败、模型输出没有 `<say>`、回复里有邮箱、有没带有效暗号的消息进了流水线（检查群响应规则）、Runner 出错、插件发送失败改由 LangBot 发送 |
+| INFO（默认） | 配置加载（包括群响应规则该填的正则）、每次交给模型、每次回复、限额生效、拦截命令 |
+| DEBUG | 每条消息：记录了什么、为什么忽略、发给模型的完整输入、模型的原始输出 |
 
 ## 排查
 
@@ -90,6 +103,8 @@ pip install langbot-plugin httpx pytest
 pytest
 lbp build          # 生成 .lbpkg
 ```
+
+CI 会在 Linux 和 Windows 上跑测试。在 `main` 上改了 `manifest.yaml` 的 `version` 后，会自动创建附带 `.lbpkg` 的 GitHub Release。
 
 业务逻辑在 `companion/`（不依赖 LangBot，有单元测试）；LangBot 事件挂载在 `components/event_listener/companion.py`。
 

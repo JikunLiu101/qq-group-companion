@@ -1,5 +1,7 @@
 # QQ Group Companion
 
+[![CI](https://github.com/JikunLiu101/qq-group-companion/actions/workflows/ci.yml/badge.svg)](https://github.com/JikunLiu101/qq-group-companion/actions/workflows/ci.yml)
+
 [简体中文](readme/README_zh_Hans.md)
 
 A [LangBot](https://github.com/langbot-app/LangBot) plugin that lets an AI persona hang out in QQ groups like a regular member: it quietly reads whitelisted groups, turns stickers / images / QQ faces into text, and decides **when** the persona should speak — only when someone actually calls it, within per-user and per-group limits.
@@ -56,9 +58,9 @@ The gate marker exists because LangBot removes the @ from the message and may ap
 3. Keep `reply-mode` = **listen** for a while and check that messages are recorded (`<data-dir>/companion.db`).
 4. **Gate secret**
    - Generate a random string of at least 16 characters, e.g. `python -c "import secrets; print(secrets.token_urlsafe(24))"`, and put it into `gate-secret`.
-   - Compute the matching regex: `python tools/gate_regexp.py <your-secret>` (run in the plugin directory).
+   - The plugin log then prints the regex to use (see [Logs](#logs)); you can also compute it with `python tools/gate_regexp.py <your-secret>` in the plugin directory. If the secret is empty, the log suggests a random one together with its regex.
    - In your pipeline → Trigger → group respond rules: turn **off** "@", prefix and random, and put the printed regex into **regexp** (it contains an invisible character, so paste the JSON output as-is).
-5. **System prompt** – your persona prompt must follow this output protocol, otherwise nothing will be sent:
+5. **System prompt** – start from [`examples/persona.example.md`](examples/persona.example.md). Whatever you write, keep this output protocol, otherwise nothing will be sent:
 
    ```
    - To speak: put the message for the group between <say> and </say>. Nothing outside the tags is sent.
@@ -71,6 +73,17 @@ The gate marker exists because LangBot removes the @ from the message and may ap
 8. Optional:
    - Error / quota replies: use a runner wrapper that outputs `<qgc-error kind="limit|refused|other"/>`, e.g. [claude-usage-guard](https://github.com/JikunLiu101/claude-usage-guard) with `CUG_LOCK_OUTPUT=<qgc-error kind="limit"/>` and `CUG_ERROR_OUTPUT=<qgc-error kind="{kind}"/>` in the Runner `env-json`.
    - Private-chat self check: add the user to `private-whitelist` **and** add a route `chat_type eq person` + `sender.id regex ^<qq>$` to the pipeline.
+
+## Logs
+
+LangBot shows the plugin's log on the plugin detail page. Set **Log level** in the plugin settings:
+
+| Level | What you see |
+|---|---|
+| ERROR | Something you need to fix: missing data directory, bot QQ number or gate secret, sticker directory not found, unexpected plugin errors (the message is then blocked rather than sent unfiltered) |
+| WARNING | Problems that recover by themselves: nickname lookup failed, model output without `<say>`, reply contained an e-mail, a message without a valid gate marker reached the pipeline (check the group rule), runner errors, sending fell back to LangBot |
+| INFO (default) | Config loaded (including the regex for the group rule), every pass to the model, every reply, limits that kicked in, commands blocked |
+| DEBUG | Every message: recorded, why it was ignored, the full prompt sent to the model, the raw model output |
 
 ## Troubleshooting
 
@@ -90,6 +103,8 @@ pip install langbot-plugin httpx pytest
 pytest
 lbp build          # creates the .lbpkg
 ```
+
+CI runs the tests on Linux and Windows. Bumping `version` in `manifest.yaml` on `main` creates a GitHub Release with the `.lbpkg` attached.
 
 Business logic lives in `companion/` (no LangBot dependency, unit-tested); LangBot event hooks are in `components/event_listener/companion.py`.
 
